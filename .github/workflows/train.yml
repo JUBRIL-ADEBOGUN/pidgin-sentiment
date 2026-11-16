@@ -3,10 +3,25 @@ name: Train Transformer & Export ONNX INT8
 on:
   workflow_dispatch:
     inputs:
+      model_id:
+        description: "Hugging Face base model ID"
+        required: true
+        default: "cardiffnlp/twitter-xlm-roberta-base-sentiment"
+        type: string
       epochs:
         description: "Training epochs"
         required: true
-        default: "3"
+        default: "2"
+        type: string
+      batch_size:
+        description: "Train batch size"
+        required: true
+        default: "16"
+        type: string
+      lr:
+        description: "Learning rate"
+        required: true
+        default: "2e-5"
         type: string
 
 jobs:
@@ -29,25 +44,29 @@ jobs:
       - name: Ingest & validate AfriSenti/NaijaSenti pcm
         run: uv run python -m pidgin_senti.data
 
-      - name: Fine-tune AfroXLMR-mini & export ONNX INT8
+      - name: Fine-tune & export ONNX INT8
         run: |
           uv run python -m pidgin_senti.train_transformer \
+            --model-id "${{ inputs.model_id }}" \
             --epochs ${{ inputs.epochs }} \
+            --batch-size ${{ inputs.batch_size }} \
+            --lr ${{ inputs.lr }} \
+            --max-length 80 \
             --quant-arch avx2
 
       - name: Publish Metrics to Job Summary
         run: |
-          echo "## AfroXLMR-mini ONNX INT8 Results" >> $GITHUB_STEP_SUMMARY
+          echo "## Transformer ONNX INT8 Results (${{ inputs.model_id }})" >> $GITHUB_STEP_SUMMARY
           echo '```json' >> $GITHUB_STEP_SUMMARY
           cat artifacts/transformer/onnx_int8/metrics_summary.json >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo '```text' >> $GITHUB_STEP_SUMMARY
           cat artifacts/transformer/onnx_int8/eval_report.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          
+
       - name: Upload quantized ONNX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: afro-xlmr-mini-onnx-int8
+          name: pidgin-sentiment-onnx-int8
           path: artifacts/transformer/onnx_int8/
           retention-days: 30

@@ -15,6 +15,7 @@ from sklearn.utils.class_weight import compute_class_weight
 from tokenizers import Tokenizer
 from torch import nn
 from transformers import (
+    AutoConfig,
     AutoModelForSequenceClassification,
     AutoTokenizer,
     DataCollatorWithPadding,
@@ -181,20 +182,41 @@ def train_and_export(
 
     id2label = {i: name for i, name in enumerate(LABEL_NAMES)}
     label2id = {name: i for i, name in enumerate(LABEL_NAMES)}
-    model = AutoModelForSequenceClassification.from_pretrained(
-        model_id,
-        num_labels=3,
-        id2label=id2label,
-        label2id=label2id,
-        ignore_mismatched_sizes=True,
-    )
+
+    cfg = AutoConfig.from_pretrained(model_id)
+    orig_label2id = {str(k).lower(): int(v) for k, v in (cfg.label2id or {}).items()}
+    has_aligned_head = set(LABEL_NAMES).issubset(orig_label2id.keys())
+
+    if has_aligned_head:
+        model = AutoModelForSequenceClassification.from_pretrained(model_id)
+        perm = [orig_label2id[name] for name in LABEL_NAMES]
+        if perm != [0, 1, 2] and hasattr(model, "classifier"):
+            with torch.no_grad():
+                model.classifier.out_proj.weight.copy_(model.classifier.out_proj.weight[perm])
+                model.classifier.out_proj.bias.copy_(model.classifier.out_proj.bias[perm])
+            print(f"Aligned pretrained sentiment head with permutation {perm}")
+        model.config.id2label = id2label
+        model.config.label2id = label2id
+        head_lr_mult = 1.0  # Keep pretrained head gentle (no 5x shock)
+    else:
+        model = AutoModelForSequenceClassification.from_pretrained(
+            model_id,
+            num_labels=3,
+            id2label=id2label,
+            label2id=label2id,
+            ignore_mismatched_sizes=True,
+        )
+        head_lr_mult = 5.0
 
     def compute_metrics(eval_pred):
         logits, labels = eval_pred
         preds = np.argmax(logits, axis=1)
         counts = {LABEL_NAMES[i]: int((preds == i).sum()) for i in range(3)}
         print("Val prediction distribution:", counts)
-        return {"macro_f1": float(f1_score(labels, preds, average="macro"))}
+        return {
+            "macro_f1": float(f1_score(labels, preds, average="macro")),
+            "weighted_f1": float(f1_score(labels, preds, average="weighted")),
+        }
 
     training_args = TrainingArguments(
         output_dir=str(artifact_dir / "checkpoints"),
@@ -209,7 +231,7 @@ def train_and_export(
         lr_scheduler_type="cosine",
         dataloader_pin_memory=torch.cuda.is_available(),
         load_best_model_at_end=True,
-        metric_for_best_model="macro_f1",
+        metric_for_best_model="weighted_f1",
         greater_is_better=True,
         save_total_limit=1,
         logging_steps=100,
@@ -218,7 +240,7 @@ def train_and_export(
 
     trainer = WeightedTrainer(
         class_weights=class_weights,
-        head_lr_multiplier=5.0,
+        head_lr_multiplier=head_lr_mult,
         model=model,
         args=training_args,
         train_dataset=train_ds,
