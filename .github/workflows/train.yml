@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       model_id:
-        description: "Hugging Face base model ID"
-        required: true
-        default: "cardiffnlp/twitter-xlm-roberta-base-sentiment"
-        type: string
+      description: "Hugging Face base model ID"
+      required: true
+      default: "cardiffnlp/twitter-xlm-roberta-base-sentiment-multilingual"
+      type: string
       epochs:
         description: "Training epochs"
         required: true
