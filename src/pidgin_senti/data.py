@@ -58,21 +58,13 @@ def _load_pcm_from_hub() -> tuple[DatasetDict, str]:
                 continue
 
             data_files = {
-                "train": [
-                    f"hf://datasets/{repo_id}@refs/convert/parquet/{f}"
-                    for f in pcm_parquets
-                    if "train" in f
-                ],
+                "train": [f"hf://datasets/{repo_id}@refs/convert/parquet/{f}" for f in pcm_parquets if "train" in f],
                 "validation": [
                     f"hf://datasets/{repo_id}@refs/convert/parquet/{f}"
                     for f in pcm_parquets
                     if "validation" in f or "dev" in f
                 ],
-                "test": [
-                    f"hf://datasets/{repo_id}@refs/convert/parquet/{f}"
-                    for f in pcm_parquets
-                    if "test" in f
-                ],
+                "test": [f"hf://datasets/{repo_id}@refs/convert/parquet/{f}" for f in pcm_parquets if "test" in f],
             }
             if all(data_files.values()):
                 ds = load_dataset("parquet", data_files=data_files)
@@ -80,17 +72,13 @@ def _load_pcm_from_hub() -> tuple[DatasetDict, str]:
         except Exception as exc:
             errors.append(f"{repo_id} (parquet discovery): {exc}")
 
-    raise RuntimeError(
-        "Failed to load Nigerian Pidgin (pcm) dataset from all HF mirrors:\n" + "\n".join(errors)
-    )
+    raise RuntimeError("Failed to load Nigerian Pidgin (pcm) dataset from all HF mirrors:\n" + "\n".join(errors))
 
 
 def _normalize_labels(df: pd.DataFrame, label_feature: object) -> pd.DataFrame:
     if pd.api.types.is_integer_dtype(df["label"]):
         names = (
-            label_feature.names
-            if isinstance(label_feature, ClassLabel)
-            else [DEFAULT_ID_TO_LABEL[i] for i in range(3)]
+            label_feature.names if isinstance(label_feature, ClassLabel) else [DEFAULT_ID_TO_LABEL[i] for i in range(3)]
         )
         df["label_name"] = df["label"].map(lambda idx: names[int(idx)].strip().lower())
     else:

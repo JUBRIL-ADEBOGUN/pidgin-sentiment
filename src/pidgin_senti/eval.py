@@ -75,9 +75,7 @@ def evaluate_predictions(
         count = int(mask.sum())
         metrics[f"{prefix}_slice_{slice_name}_count"] = float(count)
         if count >= 5:
-            metrics[f"{prefix}_slice_{slice_name}_f1"] = float(
-                f1_score(y_true[mask], y_pred[mask], average="macro")
-            )
+            metrics[f"{prefix}_slice_{slice_name}_f1"] = float(f1_score(y_true[mask], y_pred[mask], average="macro"))
 
     report = classification_report(y_true, y_pred, target_names=label_names, digits=4)
     return EvalResult(metrics=metrics, report=report)

@@ -10,9 +10,7 @@ class SentimentLabel(StrEnum):
 
 
 class PredictionRequest(BaseModel):
-    text: str = Field(
-        ..., min_length=1, max_length=1000, examples=["No wahala, dis app dey work well well 🔥"]
-    )
+    text: str = Field(..., min_length=1, max_length=1000, examples=["No wahala, dis app dey work well well 🔥"])
     request_id: str | None = Field(default=None)
 
     @field_validator("text")
@@ -28,8 +26,6 @@ class PredictionResponse(BaseModel):
     label: SentimentLabel
     confidence: float = Field(..., ge=0.0, le=1.0)
     probabilities: dict[SentimentLabel, float]
-    needs_human_review: bool = Field(
-        description="True when model confidence falls below SLA threshold."
-    )
+    needs_human_review: bool = Field(description="True when model confidence falls below SLA threshold.")
     latency_ms: float
     model_version: str
