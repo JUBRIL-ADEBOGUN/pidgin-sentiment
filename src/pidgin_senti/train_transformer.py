@@ -83,9 +83,7 @@ class WeightedTrainer(Trainer):
                 "lr": head_lr,
             },
         ]
-        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(
-            self.args, opt_model
-        )
+        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(self.args, opt_model)
         optimizer_kwargs.pop("lr", None)
         self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
         return self.optimizer
@@ -264,9 +262,7 @@ def train_and_export(
 
         fp32_eval = evaluate_predictions(val_df, fp32_val_probs, LABEL_NAMES, prefix="fp32_val")
         int8_val_eval = evaluate_predictions(val_df, int8_val_probs, LABEL_NAMES, prefix="int8_val")
-        int8_test_eval = evaluate_predictions(
-            test_df, int8_test_probs, LABEL_NAMES, prefix="int8_test"
-        )
+        int8_test_eval = evaluate_predictions(test_df, int8_test_probs, LABEL_NAMES, prefix="int8_test")
         latency = benchmark_cpu_latency(int8_infer_fn, val_df["clean_text"].tolist()[:50])
 
         mlflow.log_params(
@@ -305,8 +301,7 @@ def train_and_export(
         }
         (onnx_int8_dir / "metrics_summary.json").write_text(json.dumps(summary, indent=2))
         (onnx_int8_dir / "eval_report.txt").write_text(
-            f"=== Validation Report ===\n{int8_val_eval.report}\n"
-            f"=== Test Report ===\n{int8_test_eval.report}\n"
+            f"=== Validation Report ===\n{int8_val_eval.report}\n=== Test Report ===\n{int8_test_eval.report}\n"
         )
 
         print("\n=== ONNX INT8 Test Report ===")
@@ -324,9 +319,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=5e-5)
     parser.add_argument("--max-length", type=int, default=96)
-    parser.add_argument(
-        "--quant-arch", type=str, default="avx2", choices=["avx2", "avx512", "arm64"]
-    )
+    parser.add_argument("--quant-arch", type=str, default="avx2", choices=["avx2", "avx512", "arm64"])
     args = parser.parse_args()
     train_and_export(
         model_id=args.model_id,
