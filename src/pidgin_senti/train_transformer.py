@@ -1,6 +1,7 @@
 import argparse
-from pathlib import Path
 import json
+from pathlib import Path
+
 import mlflow
 import numpy as np
 import onnxruntime as ort
