@@ -26,14 +26,69 @@ from transformers import (
 from pidgin_senti.eval import benchmark_cpu_latency, evaluate_predictions
 from pidgin_senti.schemas import SentimentLabel
 
-MODEL_ID = "Davlan/afro-xlmr-mini"
+DEFAULT_MODEL_ID = "Davlan/afro-xlmr-mini"
 LABEL_NAMES = [e.value for e in SentimentLabel]
 
 
 class WeightedTrainer(Trainer):
-    def __init__(self, class_weights: torch.Tensor, *args, **kwargs):
+    def __init__(self, class_weights: torch.Tensor, head_lr_multiplier: float = 5.0, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.class_weights = class_weights
+        self.head_lr_multiplier = head_lr_multiplier
+
+    def create_optimizer(self):
+        if self.optimizer is not None:
+            return self.optimizer
+
+        opt_model = self.model
+        decay_parameters = self.get_decay_parameter_names(opt_model)
+        backbone_lr = self.args.learning_rate
+        head_lr = backbone_lr * self.head_lr_multiplier
+
+        optimizer_grouped_parameters = [
+            {
+                "params": [
+                    p
+                    for n, p in opt_model.named_parameters()
+                    if p.requires_grad and "classifier" not in n and n in decay_parameters
+                ],
+                "weight_decay": self.args.weight_decay,
+                "lr": backbone_lr,
+            },
+            {
+                "params": [
+                    p
+                    for n, p in opt_model.named_parameters()
+                    if p.requires_grad and "classifier" not in n and n not in decay_parameters
+                ],
+                "weight_decay": 0.0,
+                "lr": backbone_lr,
+            },
+            {
+                "params": [
+                    p
+                    for n, p in opt_model.named_parameters()
+                    if p.requires_grad and "classifier" in n and n in decay_parameters
+                ],
+                "weight_decay": self.args.weight_decay,
+                "lr": head_lr,
+            },
+            {
+                "params": [
+                    p
+                    for n, p in opt_model.named_parameters()
+                    if p.requires_grad and "classifier" in n and n not in decay_parameters
+                ],
+                "weight_decay": 0.0,
+                "lr": head_lr,
+            },
+        ]
+        optimizer_cls, optimizer_kwargs = Trainer.get_optimizer_cls_and_kwargs(
+            self.args, opt_model
+        )
+        optimizer_kwargs.pop("lr", None)
+        self.optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
+        return self.optimizer
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
         labels = inputs.pop("labels")
@@ -53,7 +108,7 @@ def _predict_onnx_runtime(
     onnx_dir: Path,
     model_filename: str,
     texts: list[str],
-    max_length: int = 128,
+    max_length: int = 96,
     batch_size: int = 32,
 ) -> tuple[np.ndarray, callable]:
     tokenizer = Tokenizer.from_file(str(onnx_dir / "tokenizer.json"))
@@ -86,10 +141,11 @@ def _predict_onnx_runtime(
 
 
 def train_and_export(
-    epochs: int = 3,
-    batch_size: int = 16,
-    lr: float = 3e-5,
-    max_length: int = 128,
+    model_id: str = DEFAULT_MODEL_ID,
+    epochs: int = 4,
+    batch_size: int = 8,
+    lr: float = 5e-5,
+    max_length: int = 96,
     quant_arch: str = "avx2",
     data_dir: Path = Path("data/processed"),
     artifact_dir: Path = Path("artifacts/transformer"),
@@ -104,7 +160,11 @@ def train_and_export(
     val_df = pd.read_parquet(data_dir / "validation.parquet")
     test_df = pd.read_parquet(data_dir / "test.parquet")
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+    print("Train label counts:", train_df["label_name"].value_counts().to_dict())
+    print("Val label counts:", val_df["label_name"].value_counts().to_dict())
+    print("Test label counts:", test_df["label_name"].value_counts().to_dict())
+
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
 
     def tokenize_fn(batch):
         return tokenizer(batch["clean_text"], truncation=True, max_length=max_length)
@@ -117,18 +177,25 @@ def train_and_export(
         classes=np.array([0, 1, 2]),
         y=train_df["label"].to_numpy(),
     )
-    smoothed_weights = np.sqrt(raw_weights)
+    smoothed_weights = np.clip(np.sqrt(raw_weights), a_min=0.5, a_max=4.0)
     class_weights = torch.tensor(smoothed_weights, dtype=torch.float32)
+    print("Smoothed class weights:", [round(float(w), 3) for w in class_weights])
 
     id2label = {i: name for i, name in enumerate(LABEL_NAMES)}
     label2id = {name: i for i, name in enumerate(LABEL_NAMES)}
     model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_ID, num_labels=3, id2label=id2label, label2id=label2id
+        model_id,
+        num_labels=3,
+        id2label=id2label,
+        label2id=label2id,
+        ignore_mismatched_sizes=True,
     )
 
     def compute_metrics(eval_pred):
         logits, labels = eval_pred
         preds = np.argmax(logits, axis=1)
+        counts = {LABEL_NAMES[i]: int((preds == i).sum()) for i in range(3)}
+        print("Val prediction distribution:", counts)
         return {"macro_f1": float(f1_score(labels, preds, average="macro"))}
 
     training_args = TrainingArguments(
@@ -137,20 +204,23 @@ def train_and_export(
         save_strategy="epoch",
         learning_rate=lr,
         per_device_train_batch_size=batch_size,
-        per_device_eval_batch_size=batch_size * 2,
+        per_device_eval_batch_size=32,
         num_train_epochs=epochs,
         weight_decay=0.01,
         warmup_ratio=0.1,
+        lr_scheduler_type="cosine",
+        dataloader_pin_memory=torch.cuda.is_available(),
         load_best_model_at_end=True,
         metric_for_best_model="macro_f1",
         greater_is_better=True,
         save_total_limit=1,
-        logging_steps=50,
+        logging_steps=100,
         report_to="none",
     )
 
     trainer = WeightedTrainer(
         class_weights=class_weights,
+        head_lr_multiplier=5.0,
         model=model,
         args=training_args,
         train_dataset=train_ds,
@@ -161,24 +231,21 @@ def train_and_export(
     )
 
     mlflow.set_experiment("pidgin-sentiment")
-    with mlflow.start_run(run_name="afro-xlmr-mini-onnx-int8"):
+    with mlflow.start_run(run_name=f"{model_id.split('/')[-1]}-onnx-int8"):
         trainer.train()
         trainer.save_model(str(pt_dir))
         tokenizer.save_pretrained(str(pt_dir))
 
-        # 1. Export PyTorch -> ONNX FP32
         ort_model = ORTModelForSequenceClassification.from_pretrained(pt_dir, export=True)
         ort_model.save_pretrained(onnx_fp32_dir)
         tokenizer.save_pretrained(onnx_fp32_dir)
 
-        # 2. Quantize ONNX FP32 -> ONNX INT8
         qconfig_fn = getattr(AutoQuantizationConfig, quant_arch)
         qconfig = qconfig_fn(is_static=False, per_channel=False)
         quantizer = ORTQuantizer.from_pretrained(onnx_fp32_dir)
         quantizer.quantize(save_dir=onnx_int8_dir, quantization_config=qconfig)
         tokenizer.save_pretrained(onnx_int8_dir)
 
-        # 3. Verify FP32 vs INT8 parity + Benchmark pure ONNX Runtime CPU Latency
         fp32_val_probs, _ = _predict_onnx_runtime(
             onnx_fp32_dir, "model.onnx", val_df["clean_text"].tolist(), max_length=max_length
         )
@@ -204,8 +271,9 @@ def train_and_export(
 
         mlflow.log_params(
             {
-                "base_model": MODEL_ID,
+                "base_model": model_id,
                 "epochs": epochs,
+                "batch_size": batch_size,
                 "lr": lr,
                 "max_length": max_length,
                 "quant_arch": quant_arch,
@@ -251,10 +319,20 @@ def train_and_export(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=3)
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--model-id", type=str, default=DEFAULT_MODEL_ID)
+    parser.add_argument("--epochs", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--lr", type=float, default=5e-5)
+    parser.add_argument("--max-length", type=int, default=96)
     parser.add_argument(
         "--quant-arch", type=str, default="avx2", choices=["avx2", "avx512", "arm64"]
     )
     args = parser.parse_args()
-    train_and_export(epochs=args.epochs, batch_size=args.batch_size, quant_arch=args.quant_arch)
+    train_and_export(
+        model_id=args.model_id,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        lr=args.lr,
+        max_length=args.max_length,
+        quant_arch=args.quant_arch,
+    )
