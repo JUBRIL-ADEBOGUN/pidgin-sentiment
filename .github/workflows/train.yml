@@ -7,7 +7,7 @@ on:
         description: "Hugging Face base model ID"
         required: true
         default: "cardiffnlp/twitter-xlm-roberta-base-sentiment-multilingual"
-     type: string
+        type: string
       epochs:
         description: "Training epochs"
         required: true
