@@ -1,0 +1,53 @@
+name: Train Transformer & Export ONNX INT8
+
+on:
+  workflow_dispatch:
+    inputs:
+      epochs:
+        description: "Training epochs"
+        required: true
+        default: "3"
+        type: string
+
+jobs:
+  train-and-quantize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install train + serve dependencies
+        run: |
+          uv python install 3.11
+          uv sync --extra train --extra serve
+
+      - name: Ingest & validate AfriSenti/NaijaSenti pcm
+        run: uv run python -m pidgin_senti.data
+
+      - name: Fine-tune AfroXLMR-mini & export ONNX INT8
+        run: |
+          uv run python -m pidgin_senti.train_transformer \
+            --epochs ${{ inputs.epochs }} \
+            --quant-arch avx2
+
+      - name: Publish Metrics to Job Summary
+        run: |
+          echo "## AfroXLMR-mini ONNX INT8 Results" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          cat artifacts/transformer/onnx_int8/metrics_summary.json >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo '```text' >> $GITHUB_STEP_SUMMARY
+          cat artifacts/transformer/onnx_int8/eval_report.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          
+      - name: Upload quantized ONNX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: afro-xlmr-mini-onnx-int8
+          path: artifacts/transformer/onnx_int8/
+          retention-days: 30

@@ -1,0 +1,15 @@
+pyproject.toml
+src/pidgin_senti/__init__.py
+src/pidgin_senti/api.py
+src/pidgin_senti/data.py
+src/pidgin_senti/preprocessing.py
+src/pidgin_senti/schemas.py
+src/pidgin_senti/train_baseline.py
+src/pidgin_senti/train_transformer.py
+src/pidgin_senti.egg-info/PKG-INFO
+src/pidgin_senti.egg-info/SOURCES.txt
+src/pidgin_senti.egg-info/dependency_links.txt
+src/pidgin_senti.egg-info/requires.txt
+src/pidgin_senti.egg-info/top_level.txt
+tests/test_preprocessing.py
+tests/test_schemas.py

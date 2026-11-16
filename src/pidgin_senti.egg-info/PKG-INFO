@@ -1,0 +1,27 @@
+Metadata-Version: 2.4
+Name: pidgin-senti
+Version: 0.1.0
+Summary: Pidgin sentiment analysis training and inference service
+Requires-Python: >=3.11
+Requires-Dist: pydantic>=2.7
+Requires-Dist: PyYAML>=6.0
+Provides-Extra: serve
+Requires-Dist: fastapi>=0.115; extra == "serve"
+Requires-Dist: numpy>=1.26; extra == "serve"
+Requires-Dist: onnxruntime>=1.19; extra == "serve"
+Requires-Dist: tokenizers>=0.20; extra == "serve"
+Requires-Dist: uvicorn[standard]>=0.32; extra == "serve"
+Provides-Extra: train
+Requires-Dist: datasets>=3.0; extra == "train"
+Requires-Dist: mlflow>=2.17; extra == "train"
+Requires-Dist: optimum[onnxruntime]>=1.23; extra == "train"
+Requires-Dist: pandas>=2.2; extra == "train"
+Requires-Dist: pandera>=0.20; extra == "train"
+Requires-Dist: scikit-learn>=1.5; extra == "train"
+Requires-Dist: torch>=2.4; extra == "train"
+Requires-Dist: transformers>=4.46; extra == "train"
+Provides-Extra: dev
+Requires-Dist: pandas>=2.2; extra == "dev"
+Requires-Dist: pandera>=0.20; extra == "dev"
+Requires-Dist: pytest>=8.3; extra == "dev"
+Requires-Dist: ruff>=0.8; extra == "dev"
