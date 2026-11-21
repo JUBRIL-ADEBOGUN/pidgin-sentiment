@@ -1,10 +1,13 @@
+import json
 import time
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 
 from fastapi import FastAPI, HTTPException, Request
 from prometheus_client import Counter, Histogram, make_asgi_app
 
 from pidgin_senti.predictor import BasePredictor, ServingSettings, load_predictor
+from pidgin_senti.preprocessing import normalize_pidgin_social_text
 from pidgin_senti.schemas import PredictionRequest, PredictionResponse
 
 PREDICTIONS_TOTAL = Counter(
@@ -79,6 +82,22 @@ def predict(payload: PredictionRequest, request: Request) -> PredictionResponse:
     ).inc()
     if raw.subword_per_word_ratio is not None:
         SUBWORD_FRAGMENTATION.observe(raw.subword_per_word_ratio)
+
+    log_path = settings.prediction_log_path
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "clean_text": normalize_pidgin_social_text(payload.text),
+        "label": raw.label.value,
+        "confidence": round(raw.confidence, 6),
+        "probabilities": {k.value: v for k, v in raw.probabilities.items()},
+        "needs_human_review": needs_review,
+        "subword_per_word_ratio": raw.subword_per_word_ratio,
+        "latency_ms": round(latency_ms, 3),
+        "model_version": predictor.version,
+    }
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
 
     return PredictionResponse(
         label=raw.label,

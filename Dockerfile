@@ -6,9 +6,9 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY src ./src
 
-ARG INSTALL_EXTRAS="--extra serve --extra serve-baseline"
+ARG PIP_EXTRAS="serve"
 RUN uv venv /opt/venv && \
-    VIRTUAL_ENV=/opt/venv uv pip install --no-cache . ${INSTALL_EXTRAS}
+    VIRTUAL_ENV=/opt/venv uv pip install --no-cache ".[${PIP_EXTRAS}]"
 
 FROM python:3.11-slim AS runtime
 
@@ -17,7 +17,7 @@ WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
 COPY src ./src
-COPY artifacts ./artifacts
+RUN mkdir -p /app/artifacts /app/logs && chown -R appuser:appuser /app
 
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONPATH="/app/src" \

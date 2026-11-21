@@ -1,3 +1,4 @@
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,8 +24,9 @@ class ServingSettings(BaseSettings):
     onnx_filename: str = "model_quantized.onnx"
     baseline_path: Path = Path("artifacts/baseline/baseline.joblib")
     confidence_threshold: float = 0.60
-    max_length: int = 128
+    max_length: int = 80
     onnx_threads: int = 2
+    prediction_log_path: Path = Path("logs/predictions.jsonl")
 
 
 @dataclass(frozen=True)
@@ -81,7 +83,14 @@ class OnnxTransformerPredictor(BasePredictor):
             providers=["CPUExecutionProvider"],
         )
         self.input_names = {inp.name for inp in self.session.get_inputs()}
-        self.version = f"afro-xlmr-mini-int8:{model_filename}"
+        cfg_path = onnx_dir / "config.json"
+        base_name = "xlmr-onnx"
+        if cfg_path.exists():
+            cfg_data = json.loads(cfg_path.read_text())
+            raw_name = Path(cfg_data.get("_name_or_path", base_name)).name
+            if raw_name not in ("pytorch_best", "onnx_fp32", "onnx_int8"):
+                base_name = raw_name.removesuffix("-int8")
+        self.version = f"{base_name}-int8:{model_filename}"
 
     def predict_one(self, text: str) -> RawPrediction:
         clean = normalize_pidgin_social_text(text)

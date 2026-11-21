@@ -6,4 +6,6 @@ __pycache__/
 data/
 artifacts/
 mlruns/
+mlflow.db/
+logs/
 mlflow.db
